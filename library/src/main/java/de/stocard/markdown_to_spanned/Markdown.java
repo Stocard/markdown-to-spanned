@@ -41,7 +41,8 @@ public class Markdown {
 			String html = new Markdown4jProcessor().process(markdown);
 			Log.d(Config.TAG, "html: " + html);
 			Spanned spanned = Html.fromHtml(html, null, new HTMLTagHandler());
-			view.setText(spanned);
+			CharSequence trimmed = trim(spanned, 0, spanned.length());
+			view.setText(trimmed);
 		} catch (IOException e) {
 			Log.e(Config.TAG, "error: " + e.getMessage());
 		}
@@ -56,12 +57,14 @@ public class Markdown {
 			html = workaroundCodeBlocks(html);
 			Log.d(Config.TAG, "html: " + html);
 			Spanned spanned = Html.fromHtml(html, null, new HTMLTagHandler());
-			return spanned;
+			CharSequence trimmed = trim(spanned, 0, spanned.length());
+			return (Spanned) trimmed;
 		} catch (IOException e) {
 			Log.e(Config.TAG, "error: " + e.getMessage());
 		}
 		return null;
 	}
+
 
 	private static String workaroundCodeBlocks(String html) {
 		// as pre tags are not properly handled and generated for codeblocks, we replace them with p
@@ -172,5 +175,16 @@ public class Markdown {
 			}
 			return Touch.onTouchEvent(widget, buffer, event);
 		}
+	}
+	public static CharSequence trim(CharSequence s, int start, int end) {
+		while (start < end && Character.isWhitespace(s.charAt(start))) {
+			start++;
+		}
+
+		while (end > start && Character.isWhitespace(s.charAt(end - 1))) {
+			end--;
+		}
+
+		return s.subSequence(start, end);
 	}
 }
