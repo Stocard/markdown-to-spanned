@@ -43,182 +43,266 @@ import java.util.Stack;
  * Html-Tag Handler that extends the native TagHandler to handle additional tags
  */
 public class HTMLTagHandler implements Html.TagHandler {
-	/**
-	 * Keeps track of lists (ol, ul). On bottom of Stack is the outermost list
-	 * and on top of Stack is the most nested list
-	 */
-	Stack<String> lists = new Stack<>();
-	/**
-	 * Tracks indexes of ordered lists so that after a nested list ends
-	 * we can continue with correct index of outer list
-	 */
-	Stack<Integer> olNextIndex = new Stack<>();
-	/**
-	 * List indentation in pixels. Nested lists use multiple of this.
-	 */
-	private static final int indent = 10;
-	private static final int listItemIndent = indent * 2;
-	private static final BulletSpan bullet = new BulletSpan(indent);
+    public static final String OL_TAG = "orderedlist";
+    public static final String UL_TAG = "unorderedlist";
+    public static final String LI_TAG = "listiem";
+
+    /**
+     * List indentation in pixels. Nested lists use multiple of this.
+     */
+    private static final int        INDENT_PX           = 10;
+    private static final int        LIST_ITEM_INDENT_PX = INDENT_PX * 2;
+    private static final BulletSpan BULLET_SPAN         = new BulletSpan(INDENT_PX);
+    public static final  String     CODE                = "code";
+    public static final  String     CENTER              = "center";
+    public static final  String     STRIKE              = "strike";
+    public static final  String     STRIKE_SHORT        = "s";
+
+    /**
+     * Keeps track of lists (ol, ul). On bottom of Stack is the outermost list
+     * and on top of Stack is the most nested list
+     */
+    private final Stack<ListTag> lists = new Stack<ListTag>();
 
 
+    /**
+     * Abstract super class for {@link Ul} and {@link Ol}.
+     */
+    private abstract static class ListTag {
+        /**
+         * Opens a new list item.
+         *
+         * @param text
+         */
+        public void openItem(final Editable text) {
+            if (text.length() > 0 && text.charAt(text.length() - 1) != '\n') {
+                text.append("\n");
+            }
+            final int len = text.length();
+            text.setSpan(this, len, len, Spanned.SPAN_MARK_MARK);
+        }
 
-	private static class Ul {
-	}
+        /**
+         * Closes a list item.
+         *
+         * @param text
+         * @param indentation
+         */
+        public final void closeItem(final Editable text, final int indentation) {
+            if (text.length() > 0 && text.charAt(text.length() - 1) != '\n') {
+                text.append("\n");
+            }
+            final Object[] replaces = getReplaces(text, indentation);
+            final int len = text.length();
+            final ListTag listTag = getLast(text);
+            final int where = text.getSpanStart(listTag);
+            text.removeSpan(listTag);
+            if (where != len) {
+                for (Object replace : replaces) {
+                    text.setSpan(replace, where, len, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+            }
+        }
 
-	private static class Ol {
-	}
+        protected abstract Object[] getReplaces(final Editable text, final int indentation);
 
-	private static class Code {
-	}
+        /**
+         * Note: This knows that the last returned object from getSpans() will be the most recently added.
+         *
+         * @see Html
+         */
+        private ListTag getLast(final Spanned text) {
+            final ListTag[] listTags = text.getSpans(0, text.length(), ListTag.class);
+            if (listTags.length == 0) {
+                return null;
+            }
+            return listTags[listTags.length - 1];
+        }
+    }
 
-	private static class Center {
-	}
+    /**
+     * Class representing the unordered list ({@code <ul>}) HTML tag.
+     */
+    private static class Ul extends ListTag {
 
-	private static class Strike {
-	}
+        @Override
+        protected Object[] getReplaces(final Editable text, final int indentation) {
+            // Nested BulletSpans increases distance between BULLET_SPAN and text, so we must prevent it.
+            int bulletMargin = INDENT_PX;
+            if (indentation > 1) {
+                bulletMargin = INDENT_PX - BULLET_SPAN.getLeadingMargin(true);
+                if (indentation > 2) {
+                    // This get's more complicated when we add a LeadingMarginSpan into the same line:
+                    // we have also counter it's effect to BulletSpan
+                    bulletMargin -= (indentation - 2) * LIST_ITEM_INDENT_PX;
+                }
+            }
+            return new Object[]{
+                    new LeadingMarginSpan.Standard(LIST_ITEM_INDENT_PX * (indentation - 1)),
+                    new BulletSpan(bulletMargin)
+            };
+        }
+    }
 
-	@Override
-	public void handleTag(final boolean opening, final String tag, Editable output, final XMLReader xmlReader) {
-		if (opening) {
-			// opening tag
-			if (tag.equalsIgnoreCase("ul")) {
-				lists.push(tag);
-			} else if (tag.equalsIgnoreCase("ol")) {
-				lists.push(tag);
-				olNextIndex.push(1);
-			} else if (tag.equalsIgnoreCase("li")) {
-				if (output.length() > 0 && output.charAt(output.length() - 1) != '\n') {
-					output.append("\n");
-				}
-				String parentList = lists.peek();
-				if (parentList.equalsIgnoreCase("ol")) {
-					start(output, new Ol());
-					output.append(olNextIndex.peek().toString()).append(". ");
-					olNextIndex.push(olNextIndex.pop() + 1);
-				} else if (parentList.equalsIgnoreCase("ul")) {
-					start(output, new Ul());
-				}
-			} else if (tag.equalsIgnoreCase("code")) {
-				start(output, new Code());
-			} else if (tag.equalsIgnoreCase("center")) {
-				start(output, new Center());
-			} else if (tag.equalsIgnoreCase("s") || tag.equalsIgnoreCase("strike")) {
-				start(output, new Strike());
-			} else {
-				Log.d(Config.TAG, "ingnoring unsupported opening tag: " + tag);
-			}
-		} else {
-			// closing tag
-			if (tag.equalsIgnoreCase("ul")) {
-				lists.pop();
-			} else if (tag.equalsIgnoreCase("ol")) {
-				lists.pop();
-				olNextIndex.pop();
-			} else if (tag.equalsIgnoreCase("li")) {
-				if (lists.peek().equalsIgnoreCase("ul")) {
-					if (output.length() > 0 && output.charAt(output.length() - 1) != '\n') {
-						output.append("\n");
-					}
-					// Nested BulletSpans increases distance between bullet and text, so we must prevent it.
-					int bulletMargin = indent;
-					if (lists.size() > 1) {
-						bulletMargin = indent - bullet.getLeadingMargin(true);
-						if (lists.size() > 2) {
-							// This get's more complicated when we add a LeadingMarginSpan into the same line:
-							// we have also counter it's effect to BulletSpan
-							bulletMargin -= (lists.size() - 2) * listItemIndent;
-						}
-					}
-					BulletSpan newBullet = new BulletSpan(bulletMargin);
-					end(output, Ul.class, false,
-							new LeadingMarginSpan.Standard(listItemIndent * (lists.size() - 1)),
-							newBullet);
-				} else if (lists.peek().equalsIgnoreCase("ol")) {
-					if (output.length() > 0 && output.charAt(output.length() - 1) != '\n') {
-						output.append("\n");
-					}
-					int numberMargin = listItemIndent * (lists.size() - 1);
-					if (lists.size() > 2) {
-						// Same as in ordered lists: counter the effect of nested Spans
-						numberMargin -= (lists.size() - 2) * listItemIndent;
-					}
-					end(output, Ol.class, false, new LeadingMarginSpan.Standard(numberMargin));
-				}
-			} else if (tag.equalsIgnoreCase("code")) {
-				end(output, Code.class, false, new TypefaceSpan("monospace"));
-			} else if (tag.equalsIgnoreCase("center")) {
-				end(output, Center.class, true, new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER));
-			} else if (tag.equalsIgnoreCase("s") || tag.equalsIgnoreCase("strike")) {
-				end(output, Strike.class, false, new StrikethroughSpan());
-			} else {
-				Log.d(Config.TAG, "ingnoring unsupported closing tag: " + tag);
-			}
+    /**
+     * Class representing the ordered list ({@code <ol>}) HTML tag.
+     */
+    private static class Ol extends ListTag {
+        private int nextIdx;
 
-		}
-	}
+        /**
+         * Creates a new {@code <ul>} with start index of 1.
+         */
+        public Ol() {
+            this(1); // default start index
+        }
 
-	/**
-	 * Mark the opening tag by using private classes
-	 */
-	private void start(Editable output, Object mark) {
-		int len = output.length();
-		output.setSpan(mark, len, len, Spannable.SPAN_MARK_MARK);
+        /**
+         * Creates a new {@code <ul>} with given start index.
+         *
+         * @param startIdx
+         */
+        public Ol(final int startIdx) {
+            this.nextIdx = startIdx;
+        }
 
-		if (Config.DEBUG) {
-			Log.d(Config.TAG, "len: " + len);
-		}
-	}
+        @Override
+        public void openItem(final Editable text) {
+            super.openItem(text);
+            text.append(Integer.toString(nextIdx++)).append(". ");
+        }
 
-	/**
-	 * Modified from {@link android.text.Html}
-	 */
-	private void end(Editable output, Class kind, boolean paragraphStyle, Object... replaces) {
-		Object obj = getLast(output, kind);
-		// start of the tag
-		int where = output.getSpanStart(obj);
-		// end of the tag
-		int len = output.length();
+        @Override
+        protected Object[] getReplaces(final Editable text, final int indentation) {
+            int numberMargin = LIST_ITEM_INDENT_PX * (indentation - 1);
+            if (indentation > 2) {
+                // Same as in ordered lists: counter the effect of nested Spans
+                numberMargin -= (indentation - 2) * LIST_ITEM_INDENT_PX;
+            }
+            return new Object[]{new LeadingMarginSpan.Standard(numberMargin)};
+        }
+    }
 
-		output.removeSpan(obj);
+    private static class Code {
+    }
 
-		if (where != len) {
-			int thisLen = len;
-			// paragraph styles like AlignmentSpan need to end with a new line!
-			if (paragraphStyle) {
-				output.append("\n");
-				thisLen++;
-			}
-			if(kind.equals(Code.class)){
-				String outputString = output.toString();
-				Log.d(Config.TAG, "pre: " + outputString);
-			}
+    private static class Center {
+    }
 
-			for (Object replace : replaces) {
-				output.setSpan(replace, where, thisLen, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-			}
+    private static class Strike {
+    }
 
-			if (Config.DEBUG) {
-				Log.d(Config.TAG, "where: " + where);
-				Log.d(Config.TAG, "thisLen: " + thisLen);
-			}
-		}
-	}
+    @Override
+    public void handleTag(final boolean opening, final String tag, Editable output, final XMLReader xmlReader) {
 
-	/**
-	 * Get last marked position of a specific tag kind (private class)
-	 */
-	private static Object getLast(Editable text, Class kind) {
-		Object[] objs = text.getSpans(0, text.length(), kind);
-		if (objs.length == 0) {
-			return null;
-		} else {
-			for (int i = objs.length; i > 0; i--) {
-				if (text.getSpanFlags(objs[i - 1]) == Spannable.SPAN_MARK_MARK) {
-					return objs[i - 1];
-				}
-			}
-			return null;
-		}
-	}
+        Log.d(Config.TAG, tag);
+        if (UL_TAG.equalsIgnoreCase(tag)) {
+            if (opening) {   // handle <ul>
+                lists.push(new Ul());
+            } else {   // handle </ul>
+                lists.pop();
+            }
+        } else if (OL_TAG.equalsIgnoreCase(tag)) {
+            if (opening) {   // handle <ol>
+                lists.push(new Ol()); // use default start index of 1
+            } else {   // handle </ol>
+                lists.pop();
+            }
+        } else if (LI_TAG.equalsIgnoreCase(tag)) {
+            if (opening) {   // handle <li>
+                lists.peek().openItem(output);
+            } else {   // handle </li>
+                lists.peek().closeItem(output, lists.size());
+            }
+        } else if (tag.equalsIgnoreCase(CODE)) {
+            if (opening) {   // handle <code>
+                start(output, new Code());
+            } else {   // handle </code>
+                end(output, Code.class, false, new TypefaceSpan("monospace"));
+            }
+        } else if (tag.equalsIgnoreCase(CENTER)) {
+            if (opening) {   // handle <center>
+                start(output, new Center());
+            } else {   // handle </center>
+                end(output, Center.class, true, new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER));
+            }
+
+        } else if (tag.equalsIgnoreCase(STRIKE_SHORT) || tag.equalsIgnoreCase(STRIKE)) {
+            if (opening) {   // handle <strike>
+                start(output, new Strike());
+            } else {   // handle </strike>
+                end(output, Strike.class, false, new StrikethroughSpan());
+            }
+
+
+        } else {
+            Log.d(Config.TAG, "ingnoring unsupported closing tag: " + tag);
+        }
+
+    }
+
+    /**
+     * Mark the opening tag by using private classes
+     */
+    private void start(Editable output, Object mark) {
+        int len = output.length();
+        output.setSpan(mark, len, len, Spannable.SPAN_MARK_MARK);
+
+        if (Config.DEBUG) {
+            Log.d(Config.TAG, "len: " + len);
+        }
+    }
+
+    /**
+     * Modified from {@link android.text.Html}
+     */
+    private void end(Editable output, Class kind, boolean paragraphStyle, Object... replaces) {
+        Object obj = getLast(output, kind);
+        // start of the tag
+        int where = output.getSpanStart(obj);
+        // end of the tag
+        int len = output.length();
+
+        output.removeSpan(obj);
+
+        if (where != len) {
+            int thisLen = len;
+            // paragraph styles like AlignmentSpan need to end with a new line!
+            if (paragraphStyle) {
+                output.append("\n");
+                thisLen++;
+            }
+            if (kind.equals(Code.class)) {
+                String outputString = output.toString();
+                Log.d(Config.TAG, "pre: " + outputString);
+            }
+
+            for (Object replace : replaces) {
+                output.setSpan(replace, where, thisLen, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+
+            if (Config.DEBUG) {
+                Log.d(Config.TAG, "where: " + where);
+                Log.d(Config.TAG, "thisLen: " + thisLen);
+            }
+        }
+    }
+
+    /**
+     * Get last marked position of a specific tag kind (private class)
+     */
+    private static Object getLast(Editable text, Class kind) {
+        Object[] objs = text.getSpans(0, text.length(), kind);
+        if (objs.length == 0) {
+            return null;
+        } else {
+            for (int i = objs.length; i > 0; i--) {
+                if (text.getSpanFlags(objs[i - 1]) == Spannable.SPAN_MARK_MARK) {
+                    return objs[i - 1];
+                }
+            }
+            return null;
+        }
+    }
 
 }
